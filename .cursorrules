@@ -1,0 +1,341 @@
+Below is a detailed and holistic view of how to implement user authentication and role management within the MVP, focusing on the integration with Supabase, the database schema, server actions, UI interfaces, and routing considerations. The goal is to establish a secure, multi-tenant environment where each user’s role and church affiliation govern their access to data.
+
+Overview
+
+Key Objectives:
+    •   Allow users (pastors, members) to sign up and log in.
+    •   Ensure a “superadmin” role can create new churches and assign a “pastor.”
+    •   Restrict data access based on church_id and role using Supabase RLS.
+    •   Set up a clear workflow: superadmin creates a church & invites a pastor; pastor invites members; members sign up and become associated with that church.
+
+Core Roles for MVP:
+    •   Superadmin: The platform owner with global access. Creates churches and initial pastors.
+    •   Admin (Pastor of a Church): Manages their church’s members, events, announcements.
+    •   Member: Can view events, announcements, update their profile.
+
+Later, you can add group_leader or visitor, but start simple.
+
+Database Schema
+
+auth.users (Provided by Supabase):
+    •   Automatically handles user authentication (email/password, magic links).
+    •   Contains id, email, created_at, etc.
+
+profiles Table (Custom):
+    •   Links a Supabase auth.users record to the church and role.
+    •   Suggested columns:
+
+CREATE TABLE profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  church_id UUID REFERENCES churches (id) ON DELETE SET NULL,
+  role TEXT CHECK (role IN ('superadmin', 'pastor', 'member', 'visitor')) NOT NULL DEFAULT 'member',
+  status TEXT CHECK (status IN ('active', 'pending', 'inactive')) DEFAULT 'active',
+  display_name TEXT,
+  email TEXT, -- redundancy for quick filtering, always sync with auth.users
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+
+    •   church_id associates the user with a specific church.
+    •   role determines privileges.
+    •   status can be used to handle pending members (awaiting pastor approval).
+
+churches Table (For Reference):
+    •   Holds info about each tenant church.
+
+CREATE TABLE churches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  stripe_customer_id TEXT,
+  domain_name TEXT,
+  logo_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+Row-Level Security (RLS)
+
+Implement RLS on profiles (and all church-related tables) so users only see data tied to their church_id or to their global role:
+    •   profiles RLS Example:
+
+-- Only allow a logged-in user to select their own profile or if superadmin:
+CREATE POLICY "select_own_profile" ON profiles
+  FOR SELECT USING (
+    auth.role() = 'supabase_auth_admin' -- superadmin OR
+    OR user_id = auth.uid()             -- user sees own profile
+    OR (auth.jwt().role = 'superadmin') -- from custom claims
+  );
+
+-- Only superadmin or the user themself can update their profile:
+CREATE POLICY "update_own_profile" ON profiles
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR (auth.jwt().role = 'superadmin')
+  );
+
+
+
+For multi-tenancy, ensure auth.jwt().church_id is included in the JWT claims so that RLS can also filter by church_id where needed. Set these claims using Supabase’s custom JWT configuration or after user login.
+
+Authentication Flows
+    1.  Superadmin Setup (Pre-MVP or Manual):
+    •   Create a superadmin user manually in Supabase (or run a SQL script to insert this user and their profile).
+    •   The superadmin does not belong to any particular church or can have a special church_id set to NULL and RLS policies that allow global access based on their role.
+    2.  Creating a Church and Assigning a Pastor:
+    •   Superadmin logs in and uses a secure admin panel (not public) to create a new church.
+    •   Superadmin invites a pastor by email. This can be done by creating a record in auth.users (via Supabase Admin UI or using Supabase Admin API) and then setting profiles.church_id and role = 'pastor'.
+    3.  Pastor Inviting Members:
+    •   Pastor sends an invite link (e.g., via email) to potential members.
+    •   When a member signs up (via a sign-up form), profiles gets created with church_id from the invite link and role = 'member'.
+    •   Pastor can later promote/demote roles if needed or approve pending members.
+
+Server Actions and Logic
+
+Use Next.js server actions (Next.js 13+ with the App Router) to handle form submissions securely on the server side:
+    •   app/(admin)/auth/actions.ts (example):
+
+'use server';
+
+import { supabaseAdminClient } from '@/lib/supabaseAdminClient';
+import { z } from 'zod';
+
+const inviteUserSchema = z.object({
+  email: z.string().email(),
+  churchId: z.string().uuid(),
+  role: z.enum(['pastor', 'member'])
+});
+
+export async function inviteUserAction(formData: FormData) {
+  const data = inviteUserSchema.parse(Object.fromEntries(formData));
+  const { email, churchId, role } = data;
+
+  // Create a user in Supabase auth
+  const { data: user, error } = await supabaseAdminClient.auth.admin.createUser({ email });
+  if (error) throw new Error(error.message);
+
+  // Insert into profiles
+  const { error: profileError } = await supabaseAdminClient
+    .from('profiles')
+    .insert({ user_id: user.user.id, church_id: churchId, role, email: user.user.email });
+
+  if (profileError) throw new Error(profileError.message);
+
+  // Optionally send a welcome email or instructions
+  return { success: true };
+}
+
+
+    •   app/auth/actions.ts:
+    •   Actions for sign-up or login using Supabase auth. For login, you might just use Supabase Auth UI Kit or client-side sign in logic. For signup, you call supabase.auth.signUp() from the client and then run a server action to finalize the profile creation if needed.
+
+Setting Role in JWT:
+    •   Configure Supabase Auth to include church_id and role in JWT claims. This allows direct RLS usage based on these claims.
+
+UI Interfaces
+
+Login & Signup Pages:
+    •   A /login page for pastors and members to sign in.
+    •   A /signup page for members who received an invite link with a church_id parameter.
+
+Admin Panel for Superadmin:
+    •   Minimal UI (just a page under (admin)/superadmin) for creating churches and inviting initial pastors.
+
+User Profile Page:
+    •   Each logged-in user can view/edit their own display_name, email.
+    •   Pastor sees a “Manage Users” page with a list of members and options to approve or change roles.
+
+Role Management UI:
+    •   Initially, keep it simple: a form in the admin panel to invite a user with a role.
+    •   For upgrading or downgrading roles (e.g., member -> pastor, pastor -> member), have a server action triggered by a button click on the user management UI.
+
+Routes & Navigation
+    •   Public Routes:
+    •   /login: Users sign in. After login, redirect to their church dashboard.
+    •   /signup: Members sign up from an invitation link. The link may include church_id as a query param, so you know which church to associate them with.
+    •   Admin (Pastor) Routes (authenticated):
+    •   (admin)/members: Pastor sees a list of members, invite new members, approve pending.
+    •   (admin)/dashboard: Pastor’s main page after login.
+    •   Superadmin Routes:
+    •   (admin)/superadmin/churches: Create a new church and assign its pastor.
+
+Access Control in Components:
+    •   Use server actions and layouts that check role before rendering. If user’s role isn’t allowed, redirect or show a “not authorized” message.
+
+Additional Considerations
+
+Data Validation:
+    •   Use Zod (as shown) for server actions.
+    •   Validate emails, ensure role is one of the defined roles.
+
+Security:
+    •   RLS ensures a user can’t access another church’s data.
+    •   Roles and church_id claims in JWT are crucial.
+    •   Protect server actions by checking role before performing sensitive operations (e.g., only pastor can invite members).
+
+Testing:
+    •   Create test users with different roles and verify they only see what they’re allowed to.
+    •   Test sign-up flow with a mock invitation link.
+
+Summary
+
+For the user authentication & role management portion of your MVP:
+    •   Supabase Auth handles the core authentication.
+    •   A profiles table links the user to a church_id and a role.
+    •   RLS Policies ensure that users only see and manipulate data tied to their own church (except superadmin).
+    •   Server Actions manage invites and role assignments, using Zod to validate input.
+    •   UI: Start with basic login/signup pages, a superadmin panel to create churches and assign pastors, and a pastor interface to invite members.
+    •   Over time, add more complexity (like pending states, upgrading roles, or social login) once the basics are stable.
+
+With this foundation, you’ve established a secure and scalable pattern for user authentication and role management that you can build upon as you expand the application’s feature set.
+
+Project Structure:
+
+src/
+├─ app/
+│  ├─ layout.tsx
+│  ├─ global.css
+│  ├─ (public)/
+│  │  ├─ page.tsx                      # Public church homepage
+│  │  ├─ sermons/
+│  │  │  ├─ page.tsx                   # Public sermons listing
+│  │  │  └─ [id]/page.tsx              # Sermon details
+│  │  ├─ announcements/
+│  │  │  ├─ page.tsx                   # Public announcements listing
+│  │  │  └─ [id]/page.tsx              # Announcement detail
+│  │  ├─ events/
+│  │  │  ├─ page.tsx                   # Public events listing
+│  │  │  └─ [id]/page.tsx              # Public event details
+│  │  ├─ prayer-requests/
+│  │  │  └─ submit/page.tsx            # Public form to submit prayer requests
+│  │  └─ ... (other public pages)
+│  │
+│  ├─ (admin)/
+│  │  ├─ dashboard/
+│  │  │  ├─ page.tsx                   # Admin dashboard overview
+│  │  │  ├─ actions.ts                 # Server actions for dashboard
+│  │  │  └─ components/
+│  │  │     └─ DashboardStats.tsx
+│  │  ├─ members/
+│  │  │  ├─ page.tsx                   # Member listing (admin)
+│  │  │  ├─ [id]/page.tsx              # Member details
+│  │  │  ├─ create/page.tsx            # Create new member
+│  │  │  ├─ actions.ts                 # Server actions (approve member, etc.)
+│  │  │  ├─ lib/queries.ts             # Supabase queries for members
+│  │  │  └─ components/
+│  │  │     ├─ MemberTable.tsx
+│  │  │     └─ MemberForm.tsx
+│  │  ├─ groups/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/GroupForm.tsx
+│  │  ├─ events/
+│  │  │  ├─ page.tsx                   # Admin event listing
+│  │  │  ├─ [id]/page.tsx              # Event details & management
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/
+│  │  │     ├─ EventForm.tsx
+│  │  │     └─ EventCard.tsx
+│  │  ├─ announcements/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/AnnouncementForm.tsx
+│  │  ├─ prayer-requests/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/PrayerRequestDetail.tsx
+│  │  ├─ polls/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/PollForm.tsx
+│  │  ├─ volunteer-positions/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/VolunteerForm.tsx
+│  │  ├─ notes/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  └─ lib/queries.ts
+│  │  ├─ shortcuts/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/ShortcutForm.tsx
+│  │  ├─ messages/
+│  │  │  ├─ page.tsx                   # Manage messages & templates
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/MessageForm.tsx
+│  │  ├─ support/
+│  │  │  ├─ page.tsx                   # Support tickets list
+│  │  │  ├─ [id]/page.tsx              # Ticket detail
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/SupportTicketForm.tsx
+│  │  ├─ feature-requests/
+│  │  │  ├─ page.tsx
+│  │  │  ├─ [id]/page.tsx
+│  │  │  ├─ create/page.tsx
+│  │  │  ├─ actions.ts
+│  │  │  ├─ lib/queries.ts
+│  │  │  └─ components/FeatureRequestForm.tsx
+│  │  └─ ... (other admin features)
+│  │
+│  └─ ... (additional top-level routes if needed)
+│
+├─ components/                         # Global reusable UI components
+│  ├─ Button.tsx
+│  ├─ Modal.tsx
+│  ├─ Header.tsx
+│  ├─ Footer.tsx
+│  └─ ...
+│
+├─ lib/                                # Global logic and utilities
+│  ├─ supabaseClient.ts                # Supabase client initialization
+│  ├─ auth.ts                          # Authentication helpers
+│  ├─ stripe.ts                        # Stripe integration
+│  └─ notifications.ts                 # Email/SMS sending logic
+│
+├─ utils/                              # General purpose utilities
+│  ├─ validators.ts
+│  ├─ formatters.ts
+│  └─ ...
+│
+├─ store/                              # Global state management (if needed)
+│  └─ appState.ts
+│
+├─ styles/
+│  ├─ globals.css
+│  └─ ...
+│
+├─ public/                             # Static assets
+│  ├─ images/
+│  └─ favicon.ico
+│
+├─ tests/                              # Tests (if you keep tests separate)
+│  ├─ events.test.ts
+│  ├─ announcements.test.ts
+│  └─ ...
+│
+├─ .env
+├─ package.json
+├─ tsconfig.json
+└─ ... (other configuration files)

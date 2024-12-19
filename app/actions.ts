@@ -4,10 +4,13 @@ import { encodedRedirect } from "@/utils/utils";
 import { createClient } from "@/utils/supabase/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { mapToDatabaseRole } from '@/auth/roles';
+import { UserRoles } from '@/auth/types';
 
 export const signUpAction = async (formData: FormData) => {
   const email = formData.get("email")?.toString();
   const password = formData.get("password")?.toString();
+  const churchId = formData.get("churchId")?.toString();
   const supabase = await createClient();
   const origin = (await headers()).get("origin");
 
@@ -19,7 +22,7 @@ export const signUpAction = async (formData: FormData) => {
     );
   }
 
-  const { error } = await supabase.auth.signUp({
+  const { data: { user }, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -28,15 +31,33 @@ export const signUpAction = async (formData: FormData) => {
   });
 
   if (error) {
-    console.error(error.code + " " + error.message);
     return encodedRedirect("error", "/sign-up", error.message);
-  } else {
-    return encodedRedirect(
-      "success",
-      "/sign-up",
-      "Thanks for signing up! Please check your email for a verification link.",
-    );
   }
+
+  if (user) {
+    const defaultRole = churchId ? UserRoles.MEMBER : UserRoles.SUPER_ADMIN;
+    const dbRole = mapToDatabaseRole(defaultRole);
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .insert({
+        user_id: user.id,
+        email: user.email,
+        church_id: churchId,
+        role: dbRole,
+        status: 'active'
+      });
+
+    if (profileError) {
+      return encodedRedirect("error", "/sign-up", "Failed to create profile");
+    }
+  }
+
+  return encodedRedirect(
+    "success",
+    "/sign-up",
+    "Check your email to confirm your account",
+  );
 };
 
 export const signInAction = async (formData: FormData) => {

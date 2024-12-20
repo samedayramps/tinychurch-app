@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { type NextRequest, NextResponse } from "next/server"
 import { UserRoles } from "@/auth/types"
+import { Logger } from '@/lib/logging'
+import { LogCategory } from '@/lib/logging-types'
 
 const PUBLIC_ROUTES = ['/sign-in', '/sign-up', '/forgot-password']
 const PROTECTED_ROUTES = ['/protected', '/church']
@@ -11,12 +13,28 @@ const ROLE_ROUTES = {
   '/staff': [UserRoles.SUPER_ADMIN, UserRoles.CHURCH_ADMIN, UserRoles.STAFF],
 } as const
 
-export default async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+  // Generate request ID if not present
+  const requestId = request.headers.get('x-request-id') || crypto.randomUUID()
+  const startTime = Date.now()
+
   try {
     let response = NextResponse.next({
       request: {
         headers: request.headers,
       },
+    })
+
+    // Add request ID to response headers
+    response.headers.set('x-request-id', requestId)
+
+    // Log the request
+    await Logger.info('Incoming request', LogCategory.API, {
+      method: request.method,
+      url: request.url,
+      requestId,
+      userAgent: request.headers.get('user-agent'),
+      referer: request.headers.get('referer'),
     })
 
     const supabase = createServerClient(
@@ -87,10 +105,26 @@ export default async function middleware(request: NextRequest) {
       }
     }
 
+    // Calculate response time and log completion
+    const responseTime = Date.now() - startTime
+    await Logger.info('Request completed', LogCategory.API, {
+      requestId,
+      responseTime,
+      status: response.status,
+    })
+
     return response
 
-  } catch (e) {
-    console.error('Middleware error:', e)
+  } catch (error) {
+    // Log error and return default response
+    const responseTime = Date.now() - startTime
+    await Logger.error('Middleware error', LogCategory.API, {
+      error,
+      requestId,
+      responseTime,
+      url: request.url,
+    })
+
     return NextResponse.next({
       request: {
         headers: request.headers,

@@ -1,21 +1,25 @@
 'use client'
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ReactNode } from 'react'
+import { useErrorTracking } from '@/hooks/use-error-tracking'
+import { LogCategory } from '@/lib/logging-types'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60 * 1000, // 1 minute
-      refetchOnWindowFocus: false,
+interface ProvidersProps {
+  children: React.ReactNode
+}
+
+export function Providers({ children }: ProvidersProps) {
+  // Add global error tracking
+  useErrorTracking({
+    category: LogCategory.UI,
+    metadata: {
+      source: 'client',
+      context: 'root',
     },
-  },
-})
+  })
 
-export function Providers({ children }: { children: ReactNode }) {
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       {children}
-    </QueryClientProvider>
+    </>
   )
 } 

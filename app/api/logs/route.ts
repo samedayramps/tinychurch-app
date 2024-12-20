@@ -11,7 +11,10 @@ export async function POST(request: Request) {
   try {
     switch (level as LogLevel) {
       case LogLevel.ERROR:
-        await Logger.error(message, category as LogCategory, error, metadata)
+        await Logger.error(message, category as LogCategory, {
+          error,
+          ...metadata
+        })
         break
       case LogLevel.WARN:
         await Logger.warn(message, category as LogCategory, metadata)

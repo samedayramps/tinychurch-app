@@ -11,7 +11,8 @@ export enum LogCategory {
   DATABASE = 'database',
   API = 'api',
   BUSINESS = 'business',
-  SYSTEM = 'system'
+  SYSTEM = 'system',
+  UI = 'ui'
 }
 
 export interface LogEntry {

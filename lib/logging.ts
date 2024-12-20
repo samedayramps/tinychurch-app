@@ -2,96 +2,48 @@
 import 'server-only'
 import { createClient } from '@/utils/supabase/server'
 import { headers } from 'next/headers'
-import { LogLevel, LogCategory } from './logging-types'
+import { LogLevel, LogCategory, LogEntry as BaseLogEntry } from './logging-types'
+
+interface LogEntry extends BaseLogEntry {
+  timestamp: string;
+}
 
 export class Logger {
-  private static async createLogEntry(
-    level: LogLevel,
-    message: string,
-    category: LogCategory,
-    metadata?: Record<string, any>,
-    error?: Error
-  ) {
-    const supabase = await createClient()
-    const headersList = await headers()
-    
-    const logData = {
+  static info(message: string, category: LogCategory, details?: unknown) {
+    Logger.log(LogLevel.INFO, message, category, details);
+  }
+
+  static warn(message: string, category: LogCategory, details?: unknown) {
+    Logger.log(LogLevel.WARN, message, category, details);
+  }
+
+  static error(message: string, category: LogCategory, details?: unknown) {
+    Logger.log(LogLevel.ERROR, message, category, details);
+  }
+
+  static debug(message: string, category: LogCategory, details?: unknown) {
+    if (process.env.NODE_ENV === 'development') {
+      Logger.log(LogLevel.DEBUG, message, category, details);
+    }
+  }
+
+  private static log(level: LogLevel, message: string, category: LogCategory, details?: unknown) {
+    const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
       category,
       message,
-      metadata,
-      request_id: headersList.get('x-request-id') || crypto.randomUUID(),
-      request_context: {
-        url: headersList.get('referer'),
-        user_agent: headersList.get('user-agent'),
-      },
-      error_details: error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : null
-    }
+      metadata: details ? { ...details } : undefined
+    };
 
-    await supabase.from('system_logs').insert(logData)
-  }
-
-  static async error(
-    message: string,
-    category: LogCategory,
-    error?: Error,
-    metadata?: Record<string, any>
-  ) {
-    await this.createLogEntry(LogLevel.ERROR, message, category, metadata, error)
-  }
-
-  static async warn(
-    message: string,
-    category: LogCategory,
-    metadata?: Record<string, any>
-  ) {
-    await this.createLogEntry(LogLevel.WARN, message, category, metadata)
-  }
-
-  static async info(
-    message: string,
-    category: LogCategory,
-    metadata?: Record<string, any>
-  ) {
-    await this.createLogEntry(LogLevel.INFO, message, category, metadata)
-  }
-
-  static async debug(
-    message: string,
-    category: LogCategory,
-    metadata?: Record<string, any>
-  ) {
+    // In development, log to console
     if (process.env.NODE_ENV === 'development') {
-      await this.createLogEntry(LogLevel.DEBUG, message, category, metadata)
-    }
-  }
-
-  static async trackEvent(
-    message: string,
-    category: string,
-    metadata?: Record<string, any>
-  ) {
-    const supabase = await createClient()
-    const headersList = await headers()
-    
-    const logData = {
-      timestamp: new Date().toISOString(),
-      level: LogLevel.INFO,
-      category: category as LogCategory,
-      message,
-      metadata,
-      request_id: headersList.get('x-request-id') || crypto.randomUUID(),
-      request_context: {
-        url: headersList.get('referer'),
-        user_agent: headersList.get('user-agent'),
-      }
+      console[level.toLowerCase() as 'log' | 'info' | 'warn' | 'error'](
+        JSON.stringify(entry, null, 2)
+      );
     }
 
-    await supabase.from('system_logs').insert(logData)
+    // TODO: In production, send to logging service
+    // This could be implemented later with services like DataDog, New Relic, etc.
   }
 }

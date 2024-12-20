@@ -1,5 +1,12 @@
 import { LogLevel, LogCategory } from '../logging-types'
 
+export interface LoggerInterface {
+  info(message: string, category: LogCategory, details?: unknown): void
+  warn(message: string, category: LogCategory, details?: unknown): void
+  error(message: string, category: LogCategory, details?: unknown): void
+  debug(message: string, category: LogCategory, details?: unknown): void
+}
+
 export interface LogMetadata {
   churchId?: string
   userId?: string

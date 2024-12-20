@@ -19,6 +19,7 @@
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "@tanstack/react-query": "^5.62.8",
+    "@tanstack/react-query-devtools": "^5.62.8",
     "@types/stripe": "^8.0.417",
     "autoprefixer": "10.4.20",
     "class-variance-authority": "^0.7.0",

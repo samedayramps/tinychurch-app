@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { AuthUser } from '@/auth/types'
+import { mapDatabaseRole } from '@/auth/roles'
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -27,7 +28,7 @@ export function useAuth() {
             id: authUser.id,
             email: authUser.email!,
             churchId: profile?.church_id,
-            role: profile?.role,
+            role: profile?.role ? mapDatabaseRole(profile.role) : undefined,
             profile: {
               displayName: profile?.display_name,
               avatarUrl: profile?.avatar_url

@@ -113,6 +113,5 @@ export function mapDatabaseRole(role: string | null): UserRole {
 }
 
 export function mapToDatabaseRole(role: UserRole): DatabaseRole {
-  // Remove underscores and convert to lowercase
-  return role.toLowerCase().replace(/_/g, '') as DatabaseRole;
+  return role.toLowerCase() as DatabaseRole;
 } 

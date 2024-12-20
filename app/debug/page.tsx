@@ -16,6 +16,7 @@ import {
 import { DEFAULT_ROLE_PERMISSIONS, mapDatabaseRole } from '@/auth/roles';
 import { Badge } from "@/components/ui/badge";
 import { RoleBadge } from "@/components/role-badge";
+import { UserRoles } from "@/auth/types";
 
 type TableData = {
   [K in keyof Database['public']['Tables']]: Database['public']['Tables'][K]['Row'][];
@@ -148,6 +149,7 @@ export default async function ProtectedPage() {
 
   // Map the database role to our application role
   const appRole = mapDatabaseRole(userRole);
+  const isSuperAdmin = appRole === UserRoles.SUPER_ADMIN;
 
   // Get permissions from our role system
   const rolePermissions = DEFAULT_ROLE_PERMISSIONS[appRole];
@@ -161,12 +163,12 @@ export default async function ProtectedPage() {
       profileToAuditLogs: auditLogsData?.length || 0,
       churchMembers: profilesData?.filter(p => p.church_id === profile?.church_id).length || 0,
       totalChurches: churchesData?.length || 0,
-      accessibleChurches: userRole === 'superadmin' ? 'All' : (userChurchId ? '1' : '0'),
+      accessibleChurches: isSuperAdmin ? 'All' : (userChurchId ? '1' : '0'),
     },
     permissions: {
       canAccessChurch: Boolean(userChurchId),
       currentRole: userRole,
-      isGlobalAdmin: userRole === 'superadmin',
+      isGlobalAdmin: isSuperAdmin,
       capabilities: {
         canManageChurches: rolePermissions.canManageChurch,
         canManageUsers: rolePermissions.canManageMembers,
@@ -251,7 +253,7 @@ export default async function ProtectedPage() {
                     <div className="text-sm text-muted-foreground">Role</div>
                     <div className="flex items-center gap-2 mt-1">
                       <RoleBadge role={appRole} />
-                      {userRole === 'superadmin' && (
+                      {isSuperAdmin && (
                         <Badge variant="destructive" className="text-xs">Global Access</Badge>
                       )}
                     </div>
@@ -303,7 +305,7 @@ export default async function ProtectedPage() {
                   <div>
                     <div className="text-sm text-muted-foreground">Data Access</div>
                     <div className="text-sm mt-1">
-                      {userRole === 'superadmin' 
+                      {isSuperAdmin 
                         ? 'Full access to all churches'
                         : `Limited to ${profile?.church?.name || 'no'} church data`
                       }
@@ -322,7 +324,7 @@ export default async function ProtectedPage() {
                 <CardContent>
                   <div className="text-2xl font-bold">{churchesData?.length || 0}</div>
                   <p className="text-xs text-muted-foreground">
-                    {userRole === 'superadmin' ? 'Full access' : 'Visible churches'}
+                    {isSuperAdmin ? 'Full access' : 'Visible churches'}
                   </p>
                 </CardContent>
               </Card>

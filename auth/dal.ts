@@ -17,23 +17,24 @@ export const verifySession = cache(async () => {
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select(`
-        *,
-        created_at,
-        updated_at,
-        last_active_at
-      `)
+      .select('user_id, church_id, role, display_name, avatar_url')
       .eq('user_id', user.id)
       .single()
 
+    console.log('Profile data:', profile)
+    console.log('Profile error:', profileError)
+
     if (profileError) throw new DatabaseError(profileError.message)
     if (!profile) throw new DatabaseError('No profile found')
+
+    const mappedRole = mapDatabaseRole(profile.role)
+    console.log('Mapped role:', mappedRole)
 
     return {
       id: user.id,
       email: user.email!,
       churchId: profile.church_id,
-      role: mapDatabaseRole(profile.role),
+      role: mappedRole,
       profile: {
         displayName: profile.display_name,
         avatarUrl: profile.avatar_url

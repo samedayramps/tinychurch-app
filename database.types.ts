@@ -48,6 +48,13 @@ export type Database = {
             referencedRelation: "churches"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
         ]
       }
       churches: {
@@ -136,11 +143,65 @@ export type Database = {
           },
         ]
       }
+      system_logs: {
+        Row: {
+          category: Database["public"]["Enums"]["log_category"]
+          church_id: string | null
+          created_at: string | null
+          error_details: Json | null
+          id: string
+          level: Database["public"]["Enums"]["log_level"]
+          message: string
+          metadata: Json | null
+          request_context: Json | null
+          timestamp: string
+          user_id: string | null
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["log_category"]
+          church_id?: string | null
+          created_at?: string | null
+          error_details?: Json | null
+          id?: string
+          level: Database["public"]["Enums"]["log_level"]
+          message: string
+          metadata?: Json | null
+          request_context?: Json | null
+          timestamp?: string
+          user_id?: string | null
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["log_category"]
+          church_id?: string | null
+          created_at?: string | null
+          error_details?: Json | null
+          id?: string
+          level?: Database["public"]["Enums"]["log_level"]
+          message?: string
+          metadata?: Json | null
+          request_context?: Json | null
+          timestamp?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "system_logs_church_id_fkey"
+            columns: ["church_id"]
+            isOneToOne: false
+            referencedRelation: "churches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_logs: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       get_session_user_id: {
         Args: Record<PropertyKey, never>
         Returns: string
@@ -153,12 +214,26 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      is_superadmin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      log_category: "auth" | "database" | "api" | "business" | "system"
+      log_level: "debug" | "info" | "warn" | "error"
     }
     CompositeTypes: {
-      [_ in never]: never
+      church_customization: {
+        primary_color: string | null
+        logo: string | null
+      }
+      church_settings: {
+        features: string[] | null
+        customization:
+          | Database["public"]["CompositeTypes"]["church_customization"]
+          | null
+      }
     }
   }
 }
